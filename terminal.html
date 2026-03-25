@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vibe Terminal</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='4 17 10 11 4 5'/%3E%3Cline x1='12' x2='20' y1='19' y2='19'/%3E%3C/svg%3E">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-webgl@0.18.0/lib/addon-webgl.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-canvas@0.7.0/lib/addon-canvas.min.js"></script>
+
+  <style>
+    :root {
+      --bg-primary: #121212;
+      --bg-secondary: #171717;
+      --bg-tertiary: #1f1f1f;
+      --bg-card: #1a1a1a;
+      --bg-card-hover: #222222;
+      --text-primary: #ffffff;
+      --text-secondary: #a8a8a8;
+      --text-muted: #707070;
+      --border: #2a2a2a;
+      --accent: #ffffff;
+      --danger: #dc2626;
+      --danger-hover: #b91c1c;
+      --success: #4ade80;
+      --warning: #fbbf24;
+      --overlay-nav: rgba(18, 18, 18, 0.92);
+      --overlay-strong: rgba(16, 16, 16, 0.9);
+      --overlay-medium: rgba(16, 16, 16, 0.82);
+      --overlay-light: rgba(16, 16, 16, 0.72);
+      --danger-subtle: rgba(220, 38, 38, 0.12);
+      --shimmer-highlight: rgba(255, 255, 255, 0.04);
+      --shadow-strong: 0 8px 24px rgba(0, 0, 0, 0.4);
+      --shadow-medium: 0 4px 12px rgba(0, 0, 0, 0.5);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .app {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+
+    .header {
+      height: 40px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      flex-shrink: 0;
+    }
+
+    .header-title {
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .btn {
+      padding: 5px 10px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      font-size: 0.7rem;
+      font-family: inherit;
+      font-weight: 500;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.15s;
+      display: none;
+    }
+
+    .btn:hover {
+      background: var(--bg-card);
+    }
+
+    .btn:focus-visible {
+      outline: 2px solid var(--text-primary);
+      outline-offset: 2px;
+    }
+
+    .btn.visible {
+      display: block;
+    }
+
+    .status {
+      padding: 4px 8px;
+      font-size: 0.65rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-secondary);
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+    }
+
+    .status[data-state="connected"] {
+      color: var(--text-primary);
+    }
+
+    .status[data-state="disconnected"] {
+      color: var(--text-muted);
+    }
+
+    .terminal-container {
+      flex: 1;
+      overflow: hidden;
+      background: var(--bg-primary);
+    }
+
+    #terminal {
+      width: 100%;
+      height: 100%;
+      font-family: "Space Mono", monospace;
+    }
+
+    .xterm {
+      padding: 8px;
+      height: 100%;
+    }
+
+    .xterm-viewport::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .xterm-viewport::-webkit-scrollbar-track {
+      background: var(--bg-primary);
+    }
+
+    .xterm-viewport::-webkit-scrollbar-thumb {
+      background: var(--border);
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="header-title">Terminal</div>
+      <div class="header-right">
+        <button class="btn visible" onclick="clearAndRedraw()">Clear</button>
+        <button id="reconnect-btn" class="btn" onclick="reconnect()">Reconnect</button>
+        <div id="status" class="status" data-state="connecting">Connecting</div>
+      </div>
+    </header>
+    <div class="terminal-container">
+      <div id="terminal"></div>
+    </div>
+  </div>
+
+  <script>
+    const RECONNECT_BASE_DELAY = 2000;
+    const RECONNECT_MAX_DELAY = 15000;
+    const PING_INTERVAL = 10000;
+    const RESIZE_DEBOUNCE = 80;
+
+    const decoder = new TextDecoder();
+
+    const state = {
+      term: null,
+      fitAddon: null,
+      ws: null,
+      pingTimer: null,
+      resizeTimer: null,
+      reconnectTimer: null,
+      reconnectAttempts: 0,
+      isConnected: false,
+      isConnecting: false,
+      isClosing: false,
+      didExit: false,
+      lastCols: 0,
+      lastRows: 0,
+    };
+    const TERMINAL_FONT_FAMILY = '"Space Mono", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace';
+    const TERMINAL_FONT_SIZE = 15;
+    const TERMINAL_LINE_HEIGHT = 1.2;
+
+    function cssVar(name) {
+      return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
+
+    function parseColor(value) {
+      const v = value.trim();
+      if (!v) return null;
+      if (v.startsWith('#')) {
+        const hex = v.slice(1);
+        const full = hex.length === 3
+          ? hex.split('').map((c) => c + c).join('')
+          : hex;
+        const num = parseInt(full, 16);
+        return {
+          r: (num >> 16) & 255,
+          g: (num >> 8) & 255,
+          b: num & 255,
+        };
+      }
+      const rgbMatch = v.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+      if (rgbMatch) {
+        return {
+          r: parseInt(rgbMatch[1], 10),
+          g: parseInt(rgbMatch[2], 10),
+          b: parseInt(rgbMatch[3], 10),
+        };
+      }
+      return null;
+    }
+
+    function withAlpha(color, alpha) {
+      if (!color) return '';
+      return `rgba(${color.r}, ${color.g}, ${color.b}, ${alpha})`;
+    }
+
+    function buildTheme() {
+      const bg = '#1F1F1F';
+      const foreground = '#CCCCCC';
+
+      return {
+        background: bg,
+        foreground: foreground,
+        cursor: foreground,
+        cursorAccent: bg,
+        selectionBackground: 'rgba(255, 255, 255, 0.18)',
+        selectionForeground: foreground,
+        black: '#000000',
+        red: '#cd3131',
+        green: '#0DBC79',
+        yellow: '#e5e510',
+        blue: '#2472c8',
+        magenta: '#bc3fbc',
+        cyan: '#11a8cd',
+        white: '#e5e5e5',
+        brightBlack: '#666666',
+        brightRed: '#f14c4c',
+        brightGreen: '#23d18b',
+        brightYellow: '#f5f543',
+        brightBlue: '#3b8eea',
+        brightMagenta: '#d670d6',
+        brightCyan: '#29b8db',
+        brightWhite: '#e5e5e5',
+      };
+    }
+
+    function setStatus(stateName) {
+      const el = document.getElementById('status');
+      const btn = document.getElementById('reconnect-btn');
+
+      el.dataset.state = stateName;
+      el.textContent = stateName === 'connecting'
+        ? 'Connecting'
+        : stateName === 'connected'
+          ? 'Connected'
+          : 'Disconnected';
+
+      btn.classList.toggle('visible', stateName === 'disconnected');
+    }
+
+    function sendMessage(type, data = {}) {
+      if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+        state.ws.send(JSON.stringify({ type, ...data }));
+      }
+    }
+
+    function sendResize(force = false) {
+      if (!state.term || !state.isConnected) return;
+      const cols = state.term.cols;
+      const rows = state.term.rows;
+      if (!force && cols === state.lastCols && rows === state.lastRows) return;
+      state.lastCols = cols;
+      state.lastRows = rows;
+      sendMessage('resize', { cols, rows });
+    }
+
+    function doFit() {
+      if (!state.fitAddon || !state.term) return;
+      const container = document.getElementById('terminal');
+      if (!container) return;
+      if (container.clientWidth === 0 || container.clientHeight === 0) return;
+
+      try {
+        state.fitAddon.fit();
+      } catch (e) {
+        console.warn('Fit error:', e);
+      }
+    }
+
+    function scheduleFit() {
+      clearTimeout(state.resizeTimer);
+      state.resizeTimer = setTimeout(() => {
+        requestAnimationFrame(doFit);
+      }, RESIZE_DEBOUNCE);
+    }
+
+    function writeSystemLine(message) {
+      if (!state.term) return;
+      state.term.writeln(`\r\n\x1b[2m${message}\x1b[0m`);
+    }
+
+    function refocusTerminal() {
+      if (!state.term) return;
+      state.term.focus();
+    }
+
+    function clearTimers() {
+      clearInterval(state.pingTimer);
+      clearTimeout(state.reconnectTimer);
+      clearTimeout(state.resizeTimer);
+      state.pingTimer = null;
+      state.reconnectTimer = null;
+      state.resizeTimer = null;
+    }
+
+    function cleanupSocket() {
+      if (!state.ws) return;
+      state.ws.onopen = null;
+      state.ws.onclose = null;
+      state.ws.onerror = null;
+      state.ws.onmessage = null;
+      state.ws.close();
+      state.ws = null;
+    }
+
+    function scheduleReconnect() {
+      if (state.isClosing || state.reconnectTimer) return;
+      state.reconnectAttempts += 1;
+      const delay = Math.min(
+        RECONNECT_BASE_DELAY * Math.pow(1.4, state.reconnectAttempts - 1),
+        RECONNECT_MAX_DELAY
+      );
+      state.reconnectTimer = setTimeout(() => {
+        state.reconnectTimer = null;
+        connect();
+      }, delay);
+    }
+
+    function connect() {
+      if (state.isConnecting) return;
+
+      state.isConnecting = true;
+      state.didExit = false;
+      setStatus('connecting');
+
+      clearTimeout(state.reconnectTimer);
+      state.reconnectTimer = null;
+      cleanupSocket();
+      clearInterval(state.pingTimer);
+
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${protocol}//${location.host}/ws/terminal`);
+      ws.binaryType = 'arraybuffer';
+      state.ws = ws;
+
+      ws.onopen = () => {
+        state.isConnecting = false;
+        state.isConnected = true;
+        state.reconnectAttempts = 0;
+        setStatus('connected');
+
+        doFit();
+        setTimeout(doFit, 50);
+        setTimeout(() => sendResize(true), 120);
+        setTimeout(refocusTerminal, 150);
+
+        state.pingTimer = setInterval(() => sendMessage('ping'), PING_INTERVAL);
+      };
+
+      ws.onmessage = (e) => {
+        let msg;
+        const text = typeof e.data === 'string' ? e.data : decoder.decode(e.data);
+
+        try {
+          msg = JSON.parse(text);
+        } catch {
+          if (state.term) {
+            state.term.write(text);
+          }
+          return;
+        }
+
+        switch (msg.type) {
+          case 'output':
+            if (state.term) state.term.write(msg.data);
+            break;
+          case 'exit':
+            state.didExit = true;
+            writeSystemLine('[Process exited]');
+            break;
+          case 'error':
+            writeSystemLine(msg.message || 'Terminal error');
+            break;
+          case 'pong':
+            break;
+        }
+      };
+
+      ws.onclose = (e) => {
+        state.isConnecting = false;
+        state.isConnected = false;
+        clearInterval(state.pingTimer);
+        if (state.ws === ws) state.ws = null;
+        setStatus('disconnected');
+
+        if (!state.didExit && !e.wasClean) {
+          writeSystemLine('[Connection lost]');
+        }
+
+        scheduleReconnect();
+      };
+
+      ws.onerror = () => {
+        if (state.isConnected) {
+          state.isConnected = false;
+          setStatus('disconnected');
+        }
+        try {
+          ws.close();
+        } catch (e) {
+          // Ignore close errors
+        }
+      };
+    }
+
+    function reconnect() {
+      if (!state.term) return;
+      state.term.clear();
+      state.term.focus();
+      connect();
+    }
+
+    function clearAndRedraw() {
+      if (!state.term) return;
+      state.term.clear();
+      sendMessage('input', { data: '\x0c' });
+      state.term.focus();
+    }
+
+    function loadRenderer(renderer) {
+      if (!state.term) return;
+      if (renderer === 'canvas') {
+        state.term.loadAddon(new CanvasAddon.CanvasAddon());
+        return;
+      }
+      if (renderer === 'webgl') {
+        state.term.loadAddon(new WebglAddon.WebglAddon());
+      }
+    }
+
+    function createTerminal() {
+      state.term = new Terminal({
+        cursorBlink: false,
+        cursorStyle: 'bar',
+        cursorInactiveStyle: 'bar',
+        cursorWidth: 2,
+        fontSize: TERMINAL_FONT_SIZE,
+        fontFamily: TERMINAL_FONT_FAMILY,
+        fontWeight: '400',
+        fontWeightBold: '700',
+        lineHeight: TERMINAL_LINE_HEIGHT,
+        letterSpacing: 0,
+        scrollback: 10000,
+        scrollOnUserInput: true,
+        smoothScrollDuration: 120,
+        theme: buildTheme(),
+        allowProposedApi: true,
+        windowsMode: false,
+        convertEol: false,
+        customGlyphs: true,
+      });
+
+      state.fitAddon = new FitAddon.FitAddon();
+      state.term.loadAddon(state.fitAddon);
+      state.term.loadAddon(new WebLinksAddon.WebLinksAddon());
+
+      const params = new URLSearchParams(location.search);
+      const renderer = params.get('renderer');
+      if (renderer === 'canvas') {
+        try {
+          loadRenderer('canvas');
+        } catch (e) {
+          console.warn('Canvas addon failed, using default renderer');
+        }
+      } else {
+        try {
+          loadRenderer('webgl');
+        } catch (e) {
+          console.warn('WebGL addon failed, falling back to canvas');
+          try {
+            loadRenderer('canvas');
+          } catch (_) {
+            // Use default renderer
+          }
+        }
+      }
+
+      const container = document.getElementById('terminal');
+      state.term.open(container);
+
+      requestAnimationFrame(() => {
+        doFit();
+        sendResize(true);
+      });
+
+      state.term.onData((data) => {
+        sendMessage('input', { data });
+      });
+
+      state.term.onResize(() => {
+        sendResize();
+      });
+
+      const resizeObserver = new ResizeObserver(scheduleFit);
+      resizeObserver.observe(container);
+
+      container.addEventListener('mousedown', () => {
+        refocusTerminal();
+      });
+      container.addEventListener('touchstart', () => {
+        refocusTerminal();
+      }, { passive: true });
+
+      window.addEventListener('resize', scheduleFit, { passive: true });
+
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+          refocusTerminal();
+          scheduleFit();
+        }
+      });
+
+      window.addEventListener('focus', () => {
+        refocusTerminal();
+        scheduleFit();
+      });
+
+      window.addEventListener('beforeunload', () => {
+        state.isClosing = true;
+        clearTimers();
+        cleanupSocket();
+      });
+
+      refocusTerminal();
+      connect();
+    }
+
+    function init() {
+      var fontsReady = document.fonts
+        ? Promise.all([
+            document.fonts.load(`400 ${TERMINAL_FONT_SIZE}px "Space Mono"`),
+            document.fonts.load(`700 ${TERMINAL_FONT_SIZE}px "Space Mono"`),
+          ]).then(function () {
+            return document.fonts.ready;
+          }).catch(function () {})
+        : Promise.resolve();
+
+      fontsReady.then(createTerminal);
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+
+</html>
