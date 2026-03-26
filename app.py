@@ -1,6 +1,8 @@
 import mimetypes
 import os
 import re
+import threading
+import time
 from pathlib import Path
 from typing import Iterator
 from urllib.parse import quote
@@ -13,6 +15,7 @@ APP_NAME = "alex-server"
 VOLUME_NAME = "vibe-media"
 MOUNT_PATH = "/vol"
 MEDIA_ROOT = Path(MOUNT_PATH).resolve()
+IDLE_TIMEOUT_SECONDS = 600
 
 image = (
     modal.Image.debian_slim()
@@ -58,6 +61,7 @@ image = (
 
 app = modal.App(APP_NAME, image=image)
 media_volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
+tunnel_cache = modal.Dict.from_name(f"{APP_NAME}-tunnel-cache", create_if_missing=True)
 
 
 def _resolve_path(raw_path: str) -> Path:
@@ -86,11 +90,30 @@ def _iter_file(
             yield chunk
 
 
-def create_api_app():
+class _ActivityTracker:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._last = time.monotonic()
+
+    def touch(self) -> None:
+        with self._lock:
+            self._last = time.monotonic()
+
+    def idle_for(self) -> float:
+        with self._lock:
+            return time.monotonic() - self._last
+
+
+def create_api_app(activity: _ActivityTracker):
     from fastapi import FastAPI, HTTPException, Request
     from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
     api_app = FastAPI()
+
+    @api_app.middleware("http")
+    async def _touch_activity(request: Request, call_next):
+        activity.touch()
+        return await call_next(request)
 
     @api_app.get("/health")
     def health() -> dict:
@@ -201,9 +224,21 @@ def create_api_app():
         base = str(request.base_url).rstrip("/")
         return {"url": f"{base}/stream?path={quote(path)}"}
 
-    add_terminal_routes(api_app)
+    add_terminal_routes(api_app, touch=activity.touch)
 
     return api_app
+
+
+def _is_tunnel_alive(url: str, timeout_s: float = 2.0) -> bool:
+    try:
+        from urllib.request import Request, urlopen
+
+        health_url = url.rstrip("/") + "/health"
+        req = Request(health_url, method="GET")
+        with urlopen(req, timeout=timeout_s) as resp:
+            return 200 <= resp.status < 300
+    except Exception:
+        return False
 
 
 @app.function(
@@ -212,9 +247,60 @@ def create_api_app():
     volumes={MOUNT_PATH: media_volume},
     env={"HOME": f"{MOUNT_PATH}/.home"},
 )
-@modal.concurrent(max_inputs=20)
-@modal.asgi_app()
-def api():
+def tunnel(q: modal.Queue):
+    # Start a live tunnel to port 8000 and keep the FastAPI app running.
     os.makedirs(f"{MOUNT_PATH}/.home", exist_ok=True)
     os.makedirs(f"{MOUNT_PATH}/media", exist_ok=True)
-    return create_api_app()
+    import uvicorn
+
+    activity = _ActivityTracker()
+
+    with modal.forward(8000) as tunnel:
+        # Send the URL back to the caller immediately.
+        q.put(tunnel.url)
+
+        config = uvicorn.Config(
+            create_api_app(activity),
+            host="0.0.0.0",
+            port=8000,
+            log_level="info",
+        )
+        server = uvicorn.Server(config)
+
+        def _serve():
+            server.run()
+
+        thread = threading.Thread(target=_serve, daemon=True)
+        thread.start()
+
+        # Stop the server after a period of inactivity to save credits.
+        while thread.is_alive():
+            if activity.idle_for() > IDLE_TIMEOUT_SECONDS:
+                server.should_exit = True
+                break
+            time.sleep(1.0)
+
+        thread.join(timeout=5.0)
+
+
+@app.function()
+@modal.fastapi_endpoint(method="GET")
+def start():
+    # Web endpoint that starts a tunnel and returns its URL.
+    cached_url = tunnel_cache.get("url")
+    if cached_url and _is_tunnel_alive(cached_url):
+        return {
+            "url": cached_url,
+            "terminal_url": f"{cached_url.rstrip('/')}/terminal",
+            "cached": True,
+        }
+
+    with modal.Queue.ephemeral() as q:
+        tunnel.spawn(q)
+        url = q.get()
+        tunnel_cache["url"] = url
+        return {
+            "url": url,
+            "terminal_url": f"{url.rstrip('/')}/terminal",
+            "cached": False,
+        }

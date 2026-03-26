@@ -176,6 +176,8 @@ def add_terminal_routes(api_app, touch=None) -> None:
             read_task.cancel()
             try:
                 await read_task
+            except asyncio.CancelledError:
+                pass
             except Exception:
                 pass
 
