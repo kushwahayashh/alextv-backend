@@ -77,7 +77,11 @@ def _resolve_path(raw_path: str) -> Path:
 
 
 def _iter_file(
-    path: Path, start: int, length: int, chunk_size: int = 1024 * 1024
+    path: Path,
+    start: int,
+    length: int,
+    chunk_size: int = 1024 * 1024,
+    touch=None,
 ) -> Iterator[bytes]:
     with path.open("rb") as f:
         f.seek(start)
@@ -87,6 +91,11 @@ def _iter_file(
             if not chunk:
                 break
             remaining -= len(chunk)
+            if touch:
+                try:
+                    touch()
+                except Exception:
+                    pass
             yield chunk
 
 
@@ -106,7 +115,7 @@ class _ActivityTracker:
 
 def create_api_app(activity: _ActivityTracker):
     from fastapi import FastAPI, HTTPException, Request
-    from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+    from fastapi.responses import JSONResponse, StreamingResponse
 
     api_app = FastAPI()
 
@@ -172,12 +181,15 @@ def create_api_app(activity: _ActivityTracker):
         mime_type, _ = mimetypes.guess_type(target.name)
         media_type = mime_type or "application/octet-stream"
 
-        # Use FileResponse when possible; it handles efficient streaming and Range support.
         if range_header is None:
-            return FileResponse(
-                path=target,
+            headers = {
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(file_size),
+            }
+            return StreamingResponse(
+                _iter_file(target, 0, file_size, touch=activity.touch),
                 media_type=media_type,
-                filename=target.name,
+                headers=headers,
             )
 
         if range_header:
@@ -197,7 +209,7 @@ def create_api_app(activity: _ActivityTracker):
                 "Content-Length": str(length),
             }
             return StreamingResponse(
-                _iter_file(target, start, length),
+                _iter_file(target, start, length, touch=activity.touch),
                 status_code=206,
                 media_type=media_type,
                 headers=headers,
@@ -208,7 +220,7 @@ def create_api_app(activity: _ActivityTracker):
             "Content-Length": str(file_size),
         }
         return StreamingResponse(
-            _iter_file(target, 0, file_size),
+            _iter_file(target, 0, file_size, touch=activity.touch),
             media_type=media_type,
             headers=headers,
         )
