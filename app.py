@@ -309,7 +309,7 @@ def start():
 
     with modal.Queue.ephemeral() as q:
         tunnel.spawn(q)
-        url = q.get()
+        url = q.get(timeout=30)
         tunnel_cache["url"] = url
         return {
             "url": url,
